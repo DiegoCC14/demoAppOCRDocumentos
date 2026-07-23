@@ -3,19 +3,17 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Escáner Manual de Documentos</title>
+    <title>Escáner Manual Alta Calidad</title>
     <style>
         body { font-family: sans-serif; text-align: center; background: #f0f0f0; margin: 0; padding: 10px; }
         .container { max-width: 600px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
         
-        /* Ocultamos el video original y el canvas puro */
         video { display: none; } 
         #canvasOculto { display: none; }
         
-        /* Este es el que ve el usuario */
+        /* El canvas se adapta a la pantalla, pero internamente procesará en HD */
         #canvasVisible { width: 100%; max-width: 400px; border: 2px solid #333; border-radius: 8px; background: #000; } 
         
-        /* Botón de captura */
         #btnCapturar {
             display: block; width: 100%; max-width: 400px; margin: 15px auto; padding: 15px; 
             font-size: 18px; font-weight: bold; background: #28a745; color: white; 
@@ -24,16 +22,13 @@
         #btnCapturar:disabled { background: #999; cursor: not-allowed; }
         #btnCapturar:active { background: #218838; transform: scale(0.98); }
 
-        /* Galería de fotos tomadas */
         .galeria-header { margin-top: 30px; border-top: 2px solid #eee; padding-top: 20px; }
         #galeria { display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin-top: 10px; }
         
-        /* Contenedor individual de cada foto y su botón X */
         .foto-container { position: relative; display: block; width: 100%; }
         .foto-item { width: 100%; border: 2px solid #4CAF50; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.2); cursor: pointer; transition: transform 0.2s; }
         .foto-item:hover { transform: scale(1.03); }
         
-        /* Botón rojo para eliminar */
         .btn-eliminar {
             position: absolute; top: -8px; right: -8px;
             background: #dc3545; color: white; border: none;
@@ -44,7 +39,6 @@
         }
         .btn-eliminar:hover { background: #c82333; transform: scale(1.1); }
 
-        /* Modal para ver la imagen en grande */
         #modalVisor {
             display: none; position: fixed; z-index: 1000;
             left: 0; top: 0; width: 100%; height: 100%;
@@ -64,14 +58,14 @@
 <body>
 
     <div class="container">
-        <h2>Escáner Manual</h2>
+        <h2>Escáner Alta Resolución</h2>
         <p id="status">Cargando motor OpenCV... (Espera por favor)</p>
         
         <video id="video" autoplay playsinline></video>
         <canvas id="canvasOculto"></canvas>
         <canvas id="canvasVisible"></canvas>
         
-        <button id="btnCapturar" disabled>📸 Tomar Foto</button>
+        <button id="btnCapturar" disabled>📸 Tomar Foto HD</button>
         
         <div class="galeria-header">
             <h3>Documentos Escaneados</h3>
@@ -79,7 +73,6 @@
         </div>
     </div>
 
-    <!-- Visor de imagen en pantalla completa -->
     <div id="modalVisor">
         <img id="modalImg" src="" alt="Vista ampliada" />
         <button id="btnCerrarModal">Cerrar Visor</button>
@@ -96,15 +89,22 @@
         const galeria = document.getElementById("galeria");
         const statusText = document.getElementById("status");
 
-        // Elementos del Modal
         const modalVisor = document.getElementById("modalVisor");
         const modalImg = document.getElementById("modalImg");
         const btnCerrarModal = document.getElementById("btnCerrarModal");
 
         let scanner;
 
-        // Iniciar cámara
-        navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
+        // Configuración exigiendo la MÁXIMA calidad posible a la cámara
+        const constraints = {
+            video: {
+                facingMode: "environment",
+                width: { ideal: 3840 }, // Ideal 4K
+                height: { ideal: 2160 } // Ideal 4K
+            }
+        };
+
+        navigator.mediaDevices.getUserMedia(constraints)
             .then(stream => { video.srcObject = stream; })
             .catch(err => { statusText.innerText = "Error: Permite el acceso a la cámara."; });
 
@@ -118,6 +118,7 @@
 
         function analizarFrame() {
             if (video.readyState === video.HAVE_ENOUGH_DATA) {
+                // El canvas toma la resolución real y gigante del video
                 canvasOculto.width = video.videoWidth;
                 canvasOculto.height = video.videoHeight;
                 canvasVisible.width = video.videoWidth;
@@ -141,41 +142,35 @@
 
         btnCapturar.addEventListener("click", () => {
             try {
-                const papelExtraido = scanner.extractPaper(canvasOculto, 600, 800);
+                // EXTRAEMOS LA FOTO EN ALTA CALIDAD (1500x2000 píxeles, sin el fondo)
+                const papelExtraido = scanner.extractPaper(canvasOculto, 1500, 2000);
                 
-                // 1. Crear contenedor para la foto y el botón
                 const contenedorFoto = document.createElement("div");
                 contenedorFoto.className = "foto-container";
 
-                // 2. Crear la imagen
                 const nuevaImagen = document.createElement("img");
                 nuevaImagen.className = "foto-item";
-                nuevaImagen.src = papelExtraido.toDataURL("image/jpeg"); 
+                // Calidad JPEG al 95% para mejor nitidez en el OCR
+                nuevaImagen.src = papelExtraido.toDataURL("image/jpeg", 0.95); 
                 
-                // Evento para abrir la imagen en el visor (Modal)
                 nuevaImagen.addEventListener("click", () => {
                     modalImg.src = nuevaImagen.src;
-                    modalVisor.style.display = "flex"; // Mostramos el modal
+                    modalVisor.style.display = "flex"; 
                 });
 
-                // 3. Crear el botón rojo "X" para eliminar
                 const btnEliminar = document.createElement("button");
                 btnEliminar.className = "btn-eliminar";
                 btnEliminar.innerHTML = "X";
                 
-                // Evento para borrar la foto
                 btnEliminar.addEventListener("click", () => {
-                    contenedorFoto.remove(); // Elimina todo el contenedor de la galería
+                    contenedorFoto.remove(); 
                 });
 
-                // 4. Juntar todo y mandarlo a la galería
                 contenedorFoto.appendChild(nuevaImagen);
                 contenedorFoto.appendChild(btnEliminar);
                 galeria.prepend(contenedorFoto); 
 
-                // Mensajes de estado
-                const mensajeOriginal = statusText.innerText;
-                statusText.innerText = "¡Foto agregada a la lista!";
+                statusText.innerText = "¡Foto HD extraída sin fondo!";
                 statusText.style.color = "#28a745";
                 
                 setTimeout(() => {
@@ -188,12 +183,10 @@
             }
         });
 
-        // Eventos para cerrar el Modal
         btnCerrarModal.addEventListener("click", () => {
             modalVisor.style.display = "none";
         });
 
-        // También cerrar si el usuario hace clic en el fondo negro
         modalVisor.addEventListener("click", (e) => {
             if (e.target === modalVisor) {
                 modalVisor.style.display = "none";
