@@ -7,10 +7,14 @@
     <style>
         body { font-family: sans-serif; text-align: center; background: #f0f0f0; margin: 0; padding: 20px; }
         .container { max-width: 600px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-        video { width: 100%; max-width: 400px; border: 2px solid #333; border-radius: 8px; transform: scaleX(-1); }
-        /* El canvas est� oculto, solo lo usamos para procesar los datos */
-        canvas { display: none; }
-        #resultado { max-width: 100%; border: 3px solid #4CAF50; border-radius: 8px; margin-top: 20px; display: none; }
+        
+        /* Ahora ocultamos el video original */
+        video { display: none; } 
+        
+        /* Y mostramos el canvas para poder dibujar los bordes detectados encima */
+        canvas { width: 100%; max-width: 400px; border: 2px solid #333; border-radius: 8px; } 
+        
+        #resultado { max-width: 100%; max-width: 400px; border: 3px solid #4CAF50; border-radius: 8px; margin-top: 20px; display: none; }
         h2 { color: #333; }
         #status { font-weight: bold; color: #d9534f; padding: 10px; }
     </style>
@@ -42,70 +46,72 @@
         const ctx = canvas.getContext("2d", { willReadFrequently: true });
         const resultadoImg = document.getElementById("resultado");
         const statusText = document.getElementById("status");
-
+    
         let scanner;
         let framesEstables = 0;
         let procesando = true;
-
-        // Inicializar la c�mara web (busca la c�mara trasera en m�viles)
+    
+        // Usamos video: true para PC. Si estás en móvil, usa { facingMode: "environment" }
         navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
             .then(stream => {
                 video.srcObject = stream;
             })
             .catch(err => {
-                statusText.innerText = "Error: Permite el acceso a la c�mara.";
+                statusText.innerText = "Error: No se pudo acceder a la cámara.";
             });
-
-        // Esperar a que OpenCV termine de cargar para iniciar
+    
         cv['onRuntimeInitialized'] = () => {
             scanner = new jscanify();
-            statusText.innerText = "Apunta a un documento cuadrado/rectangular...";
+            statusText.innerText = "Apunta a una hoja sobre un fondo oscuro...";
             statusText.style.color = "#f0ad4e";
             requestAnimationFrame(analizarFrame);
         };
-
+    
         function analizarFrame() {
             if (!procesando) return;
-
+    
             if (video.readyState === video.HAVE_ENOUGH_DATA) {
-                // Ajustar tama�o del canvas al video
                 canvas.width = video.videoWidth;
                 canvas.height = video.videoHeight;
+                
+                // 1. Dibujamos el video crudo en el canvas
                 ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
+    
                 try {
-                    // Intenta encontrar un papel y extraerlo (recortarlo y aplanarlo)
-                    // Si no hay un documento claro en la c�mara, esto lanzar� un error
-                    const papelExtraidoCanvas = scanner.extractPaper(canvas, 600, 800);
+                    // 2. Intentamos resaltar el papel (dibuja el contorno)
+                    const canvasResaltado = scanner.highlightPaper(canvas);
                     
-                    // Si llegamos a esta l�nea, significa que detect� un documento v�lido
+                    // Sobrescribimos el canvas visible con la imagen que tiene el borde dibujado
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    ctx.drawImage(canvasResaltado, 0, 0);
+    
+                    // 3. Intentamos extraer el papel para validar que realmente es un documento
+                    const papelExtraido = scanner.extractPaper(canvas, 600, 800);
+    
+                    // Si no hay errores hasta aquí, significa que detectó la hoja correctamente
                     framesEstables++;
-                    statusText.innerText = `Documento detectado. Qu�date quieto... (${framesEstables}/15)`;
+                    statusText.innerText = `¡Hoja detectada! Quédate quieto... (${framesEstables}/15)`;
                     statusText.style.color = "#0275d8";
-
-                    // Si se mantiene estable por ~15 cuadros, disparamos la captura
+    
                     if (framesEstables >= 15) {
-                        procesando = false; // Detenemos el loop
-                        statusText.innerText = "�Foto capturada con �xito!";
+                        procesando = false; 
+                        statusText.innerText = "¡Foto capturada con éxito!";
                         statusText.style.color = "#5cb85c";
                         
-                        // Convertir el canvas recortado a imagen Base64
-                        resultadoImg.src = papelExtraidoCanvas.toDataURL("image/jpeg");
+                        resultadoImg.src = papelExtraido.toDataURL("image/jpeg");
                         resultadoImg.style.display = "block";
+                        canvas.style.display = "none"; // Ocultamos la cámara en vivo
                         
-                        // Opcional: Detener la c�mara
                         video.srcObject.getTracks().forEach(track => track.stop());
-                        video.style.display = "none";
                     }
                 } catch (e) {
-                    // Si pierde el documento de vista o est� borroso, reseteamos el contador
+                    // Si no detecta los 4 bordes de la hoja, entra aquí
                     framesEstables = 0;
-                    statusText.innerText = "Buscando bordes del documento...";
+                    statusText.innerText = "Buscando la hoja... (Asegura un buen contraste)";
                     statusText.style.color = "#d9534f";
                 }
             }
             
-            // Repetir ciclo de lectura
             if(procesando) {
                 requestAnimationFrame(analizarFrame);
             }
