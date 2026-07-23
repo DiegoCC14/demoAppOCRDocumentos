@@ -79,119 +79,120 @@
     </div>
 
     <script>
-        const video = document.getElementById("video");
-        const canvasOculto = document.getElementById("canvasOculto");
-        const ctxOculto = canvasOculto.getContext("2d", { willReadFrequently: true });
-        const canvasVisible = document.getElementById("canvasVisible");
-        const ctxVisible = canvasVisible.getContext("2d");
-        
-        const btnCapturar = document.getElementById("btnCapturar");
-        const galeria = document.getElementById("galeria");
-        const statusText = document.getElementById("status");
-
-        const modalVisor = document.getElementById("modalVisor");
-        const modalImg = document.getElementById("modalImg");
-        const btnCerrarModal = document.getElementById("btnCerrarModal");
-
-        let scanner;
-
-        // Configuración exigiendo la MÁXIMA calidad posible a la cámara
-        const constraints = {
-            video: {
-                facingMode: "environment",
-                width: { ideal: 2840 }, // Ideal 4K
-                height: { ideal: 1160 } // Ideal 4K
-            }
-        };
-
-        navigator.mediaDevices.getUserMedia(constraints)
-            .then(stream => { video.srcObject = stream; })
-            .catch(err => { statusText.innerText = "Error: Permite el acceso a la cámara."; });
-
-        cv['onRuntimeInitialized'] = () => {
-            scanner = new jscanify();
-            statusText.innerText = "Enfoca el documento. Cuando el recuadro coincida, toma la foto.";
-            statusText.style.color = "#0275d8";
-            btnCapturar.disabled = false; 
-            requestAnimationFrame(analizarFrame);
-        };
-
-        function analizarFrame() {
-            if (video.readyState === video.HAVE_ENOUGH_DATA) {
-                // El canvas toma la resolución real y gigante del video
-                canvasOculto.width = video.videoWidth;
-                canvasOculto.height = video.videoHeight;
-                canvasVisible.width = video.videoWidth;
-                canvasVisible.height = video.videoHeight;
-                
-                ctxOculto.drawImage(video, 0, 0, canvasOculto.width, canvasOculto.height);
-
-                try {
-                    const canvasResaltado = scanner.highlightPaper(canvasOculto);
-                    ctxVisible.clearRect(0, 0, canvasVisible.width, canvasVisible.height);
-                    ctxVisible.drawImage(canvasResaltado, 0, 0);
-                    btnCapturar.style.backgroundColor = "#28a745"; 
-                } catch (e) {
-                    ctxVisible.clearRect(0, 0, canvasVisible.width, canvasVisible.height);
-                    ctxVisible.drawImage(canvasOculto, 0, 0);
-                    btnCapturar.style.backgroundColor = "#f0ad4e"; 
+            const video = document.getElementById("video");
+            const canvasOculto = document.getElementById("canvasOculto");
+            const ctxOculto = canvasOculto.getContext("2d", { willReadFrequently: true });
+            const canvasVisible = document.getElementById("canvasVisible");
+            const ctxVisible = canvasVisible.getContext("2d");
+            
+            const btnCapturar = document.getElementById("btnCapturar");
+            const galeria = document.getElementById("galeria");
+            const statusText = document.getElementById("status");
+    
+            const modalVisor = document.getElementById("modalVisor");
+            const modalImg = document.getElementById("modalImg");
+            const btnCerrarModal = document.getElementById("btnCerrarModal");
+    
+            let scanner;
+            let idAnimacion; // Para poder pausar el procesamiento
+    
+            // CONFIGURACIÓN DINÁMICA DE HARDWARE
+            const constraints = {
+                video: {
+                    facingMode: "environment",
+                    width: { ideal: 1920 },  // Solicita 1080p como ideal (el navegador bajará si el hardware no puede)
+                    height: { ideal: 1080 },
+                    frameRate: { ideal: 15, max: 24 } // CLAVE: Evita saturar el procesador bajando los FPS
                 }
+            };
+    
+            navigator.mediaDevices.getUserMedia(constraints)
+                .then(stream => { video.srcObject = stream; })
+                .catch(err => { statusText.innerText = "Error: Permite el acceso a la cámara."; });
+    
+            cv['onRuntimeInitialized'] = () => {
+                scanner = new jscanify();
+                statusText.innerText = "Enfoca el documento. Cuando el recuadro coincida, toma la foto.";
+                statusText.style.color = "#0275d8";
+                btnCapturar.disabled = false; 
+                idAnimacion = requestAnimationFrame(analizarFrame);
+            };
+    
+            function analizarFrame() {
+                if (video.readyState === video.HAVE_ENOUGH_DATA) {
+                    canvasOculto.width = video.videoWidth;
+                    canvasOculto.height = video.videoHeight;
+                    canvasVisible.width = video.videoWidth;
+                    canvasVisible.height = video.videoHeight;
+                    
+                    ctxOculto.drawImage(video, 0, 0, canvasOculto.width, canvasOculto.height);
+    
+                    try {
+                        const canvasResaltado = scanner.highlightPaper(canvasOculto);
+                        ctxVisible.clearRect(0, 0, canvasVisible.width, canvasVisible.height);
+                        ctxVisible.drawImage(canvasResaltado, 0, 0);
+                        btnCapturar.style.backgroundColor = "#28a745"; 
+                    } catch (e) {
+                        ctxVisible.clearRect(0, 0, canvasVisible.width, canvasVisible.height);
+                        ctxVisible.drawImage(canvasOculto, 0, 0);
+                        btnCapturar.style.backgroundColor = "#f0ad4e"; 
+                    }
+                }
+                // Seguimos en bucle
+                idAnimacion = requestAnimationFrame(analizarFrame);
             }
-            requestAnimationFrame(analizarFrame);
-        }
-
-        btnCapturar.addEventListener("click", () => {
-            try {
-                // EXTRAEMOS LA FOTO EN ALTA CALIDAD (1500x2000 píxeles, sin el fondo)
-                const papelExtraido = scanner.extractPaper(canvasOculto, 1500, 2000);
-                
-                const contenedorFoto = document.createElement("div");
-                contenedorFoto.className = "foto-container";
-
-                const nuevaImagen = document.createElement("img");
-                nuevaImagen.className = "foto-item";
-                // Calidad JPEG al 95% para mejor nitidez en el OCR
-                nuevaImagen.src = papelExtraido.toDataURL("image/jpeg", 0.95); 
-                
-                nuevaImagen.addEventListener("click", () => {
-                    modalImg.src = nuevaImagen.src;
-                    modalVisor.style.display = "flex"; 
-                });
-
-                const btnEliminar = document.createElement("button");
-                btnEliminar.className = "btn-eliminar";
-                btnEliminar.innerHTML = "X";
-                
-                btnEliminar.addEventListener("click", () => {
-                    contenedorFoto.remove(); 
-                });
-
-                contenedorFoto.appendChild(nuevaImagen);
-                contenedorFoto.appendChild(btnEliminar);
-                galeria.prepend(contenedorFoto); 
-
-                statusText.innerText = "¡Foto HD extraída sin fondo!";
-                statusText.style.color = "#28a745";
-                
-                setTimeout(() => {
-                    statusText.innerText = "Enfoca otro documento si lo deseas...";
-                    statusText.style.color = "#0275d8";
-                }, 2000);
-
-            } catch(e) {
-                alert("No se logran distinguir las 4 esquinas del documento. Ponlo sobre un fondo oscuro e intenta de nuevo.");
-            }
-        });
-
-        btnCerrarModal.addEventListener("click", () => {
-            modalVisor.style.display = "none";
-        });
-
-        modalVisor.addEventListener("click", (e) => {
-            if (e.target === modalVisor) {
+    
+            btnCapturar.addEventListener("click", () => {
+                try {
+                    // Extraemos en proporción A4, en buena calidad pero manejable (1200x1600)
+                    const papelExtraido = scanner.extractPaper(canvasOculto, 1200, 1600);
+                    
+                    const contenedorFoto = document.createElement("div");
+                    contenedorFoto.className = "foto-container";
+    
+                    const nuevaImagen = document.createElement("img");
+                    nuevaImagen.className = "foto-item";
+                    nuevaImagen.src = papelExtraido.toDataURL("image/jpeg", 0.90); 
+                    
+                    nuevaImagen.addEventListener("click", () => {
+                        modalImg.src = nuevaImagen.src;
+                        modalVisor.style.display = "flex"; 
+                    });
+    
+                    const btnEliminar = document.createElement("button");
+                    btnEliminar.className = "btn-eliminar";
+                    btnEliminar.innerHTML = "X";
+                    
+                    btnEliminar.addEventListener("click", () => {
+                        contenedorFoto.remove(); 
+                    });
+    
+                    contenedorFoto.appendChild(nuevaImagen);
+                    contenedorFoto.appendChild(btnEliminar);
+                    galeria.prepend(contenedorFoto); 
+    
+                    statusText.innerText = "¡Foto procesada y optimizada!";
+                    statusText.style.color = "#28a745";
+                    
+                    setTimeout(() => {
+                        statusText.innerText = "Enfoca otro documento si lo deseas...";
+                        statusText.style.color = "#0275d8";
+                    }, 2000);
+    
+                } catch(e) {
+                    alert("No se logran distinguir las 4 esquinas. Mejora el contraste e intenta de nuevo.");
+                }
+            });
+    
+            btnCerrarModal.addEventListener("click", () => {
                 modalVisor.style.display = "none";
-            }
-        });
-    </script>
+            });
+    
+            modalVisor.addEventListener("click", (e) => {
+                if (e.target === modalVisor) {
+                    modalVisor.style.display = "none";
+                }
+            });
+        </script>
 </body>
 </html>
