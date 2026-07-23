@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Auto-Captura de Documentos</title>
+    <style>
+        body { font-family: sans-serif; text-align: center; background: #f0f0f0; margin: 0; padding: 20px; }
+        .container { max-width: 600px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        video { width: 100%; max-width: 400px; border: 2px solid #333; border-radius: 8px; transform: scaleX(-1); }
+        /* El canvas está oculto, solo lo usamos para procesar los datos */
+        canvas { display: none; }
+        #resultado { max-width: 100%; border: 3px solid #4CAF50; border-radius: 8px; margin-top: 20px; display: none; }
+        h2 { color: #333; }
+        #status { font-weight: bold; color: #d9534f; padding: 10px; }
+    </style>
+
+    <!-- 1. Cargamos OpenCV.js (Motor matemático de visión por computadora) -->
+    <script async src="https://docs.opencv.org/4.7.0/opencv.js" type="text/javascript"></script>
+    <!-- 2. Cargamos jscanify (Librería para detectar y recortar el papel) -->
+    <script src="https://cdn.jsdelivr.net/gh/ColonelParrot/jscanify@master/src/jscanify.min.js"></script>
+</head>
+<body>
+
+    <div class="container">
+        <h2>Escáner Inteligente</h2>
+        <p id="status">Cargando librerías (OpenCV pesa un poco, espera)...</p>
+        
+        <!-- Video en vivo -->
+        <video id="video" autoplay playsinline></video>
+        
+        <!-- Canvas oculto para procesar cada cuadro -->
+        <canvas id="canvas"></canvas>
+        
+        <!-- Imagen final recortada -->
+        <img id="resultado" alt="Documento Recortado" />
+    </div>
+
+    <script>
+        const video = document.getElementById("video");
+        const canvas = document.getElementById("canvas");
+        const ctx = canvas.getContext("2d", { willReadFrequently: true });
+        const resultadoImg = document.getElementById("resultado");
+        const statusText = document.getElementById("status");
+
+        let scanner;
+        let framesEstables = 0;
+        let procesando = true;
+
+        // Inicializar la cámara web (busca la cámara trasera en móviles)
+        navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
+            .then(stream => {
+                video.srcObject = stream;
+            })
+            .catch(err => {
+                statusText.innerText = "Error: Permite el acceso a la cámara.";
+            });
+
+        // Esperar a que OpenCV termine de cargar para iniciar
+        cv['onRuntimeInitialized'] = () => {
+            scanner = new jscanify();
+            statusText.innerText = "Apunta a un documento cuadrado/rectangular...";
+            statusText.style.color = "#f0ad4e";
+            requestAnimationFrame(analizarFrame);
+        };
+
+        function analizarFrame() {
+            if (!procesando) return;
+
+            if (video.readyState === video.HAVE_ENOUGH_DATA) {
+                // Ajustar tamaño del canvas al video
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+                try {
+                    // Intenta encontrar un papel y extraerlo (recortarlo y aplanarlo)
+                    // Si no hay un documento claro en la cámara, esto lanzará un error
+                    const papelExtraidoCanvas = scanner.extractPaper(canvas, 600, 800);
+                    
+                    // Si llegamos a esta línea, significa que detectó un documento válido
+                    framesEstables++;
+                    statusText.innerText = `Documento detectado. Quédate quieto... (${framesEstables}/15)`;
+                    statusText.style.color = "#0275d8";
+
+                    // Si se mantiene estable por ~15 cuadros, disparamos la captura
+                    if (framesEstables >= 15) {
+                        procesando = false; // Detenemos el loop
+                        statusText.innerText = "¡Foto capturada con éxito!";
+                        statusText.style.color = "#5cb85c";
+                        
+                        // Convertir el canvas recortado a imagen Base64
+                        resultadoImg.src = papelExtraidoCanvas.toDataURL("image/jpeg");
+                        resultadoImg.style.display = "block";
+                        
+                        // Opcional: Detener la cámara
+                        video.srcObject.getTracks().forEach(track => track.stop());
+                        video.style.display = "none";
+                    }
+                } catch (e) {
+                    // Si pierde el documento de vista o está borroso, reseteamos el contador
+                    framesEstables = 0;
+                    statusText.innerText = "Buscando bordes del documento...";
+                    statusText.style.color = "#d9534f";
+                }
+            }
+            
+            // Repetir ciclo de lectura
+            if(procesando) {
+                requestAnimationFrame(analizarFrame);
+            }
+        }
+    </script>
+</body>
+</html>
