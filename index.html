@@ -3,119 +3,153 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>1 - Auto-Captura de Documentos</title>
+    <title>Escáner Manual de Documentos</title>
     <style>
-        body { font-family: sans-serif; text-align: center; background: #f0f0f0; margin: 0; padding: 20px; }
+        body { font-family: sans-serif; text-align: center; background: #f0f0f0; margin: 0; padding: 10px; }
         .container { max-width: 600px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
         
-        /* Ahora ocultamos el video original */
+        /* Ocultamos el video original y el canvas puro */
         video { display: none; } 
+        #canvasOculto { display: none; }
         
-        /* Y mostramos el canvas para poder dibujar los bordes detectados encima */
-        canvas { width: 100%; max-width: 400px; border: 2px solid #333; border-radius: 8px; } 
+        /* Este es el que ve el usuario */
+        #canvasVisible { width: 100%; max-width: 400px; border: 2px solid #333; border-radius: 8px; background: #000; } 
         
-        #resultado { max-width: 100%; max-width: 400px; border: 3px solid #4CAF50; border-radius: 8px; margin-top: 20px; display: none; }
-        h2 { color: #333; }
+        /* Botón de captura estilo aplicación */
+        #btnCapturar {
+            display: block; width: 100%; max-width: 400px; margin: 15px auto; padding: 15px; 
+            font-size: 18px; font-weight: bold; background: #28a745; color: white; 
+            border: none; border-radius: 8px; cursor: pointer; transition: 0.3s;
+        }
+        #btnCapturar:disabled { background: #999; cursor: not-allowed; }
+        #btnCapturar:active { background: #218838; transform: scale(0.98); }
+
+        /* Galería de fotos tomadas */
+        .galeria-header { margin-top: 30px; border-top: 2px solid #eee; padding-top: 20px; }
+        #galeria { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 10px; }
+        .foto-item { width: 100%; border: 2px solid #4CAF50; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.2); }
+        
+        h2 { color: #333; margin-top: 0; }
         #status { font-weight: bold; color: #d9534f; padding: 10px; }
     </style>
 
-    <!-- 1. Cargamos OpenCV.js (Motor matem�tico de visi�n por computadora) -->
+    <!-- Usamos OpenCV directo (sin async) para evitar errores en móviles -->
     <script src="https://docs.opencv.org/4.7.0/opencv.js" type="text/javascript"></script>
-    <!-- 2. Cargamos jscanify (Librer�a para detectar y recortar el papel) -->
     <script src="https://cdn.jsdelivr.net/gh/ColonelParrot/jscanify@master/src/jscanify.min.js"></script>
 </head>
 <body>
 
     <div class="container">
-        <h2>Esc�ner Inteligente</h2>
-        <p id="status">Cargando librer�as (OpenCV pesa un poco, espera)...</p>
+        <h2>Escáner Manual</h2>
+        <p id="status">Cargando motor OpenCV... (Espera por favor)</p>
         
-        <!-- Video en vivo -->
         <video id="video" autoplay playsinline></video>
+        <canvas id="canvasOculto"></canvas>
+        <canvas id="canvasVisible"></canvas>
         
-        <!-- Canvas oculto para procesar cada cuadro -->
-        <canvas id="canvas"></canvas>
+        <!-- Botón para tomar la foto (empieza deshabilitado) -->
+        <button id="btnCapturar" disabled>📸 Tomar Foto</button>
         
-        <!-- Imagen final recortada -->
-        <img id="resultado" alt="Documento Recortado" />
+        <div class="galeria-header">
+            <h3>Documentos Escaneados</h3>
+            <div id="galeria"></div>
+        </div>
     </div>
 
     <script>
         const video = document.getElementById("video");
-        const canvas = document.getElementById("canvas");
-        const ctx = canvas.getContext("2d", { willReadFrequently: true });
-        const resultadoImg = document.getElementById("resultado");
+        const canvasOculto = document.getElementById("canvasOculto");
+        const ctxOculto = canvasOculto.getContext("2d", { willReadFrequently: true });
+        const canvasVisible = document.getElementById("canvasVisible");
+        const ctxVisible = canvasVisible.getContext("2d");
+        
+        const btnCapturar = document.getElementById("btnCapturar");
+        const galeria = document.getElementById("galeria");
         const statusText = document.getElementById("status");
-    
+
         let scanner;
-        let framesEstables = 0;
-        let procesando = true;
-    
-        // Usamos video: true para PC. Si estás en móvil, usa { facingMode: "environment" }
+
+        // Iniciar la cámara (cámara trasera en móviles)
         navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
             .then(stream => {
                 video.srcObject = stream;
             })
             .catch(err => {
-                statusText.innerText = "Error: No se pudo acceder a la cámara.";
+                statusText.innerText = "Error: Permite el acceso a la cámara.";
             });
-    
+
+        // Esperar a que OpenCV esté listo
         cv['onRuntimeInitialized'] = () => {
             scanner = new jscanify();
-            statusText.innerText = "Apunta a una hoja sobre un fondo oscuro...";
-            statusText.style.color = "#f0ad4e";
+            statusText.innerText = "Enfoca el documento. Cuando el recuadro coincida, toma la foto.";
+            statusText.style.color = "#0275d8";
+            btnCapturar.disabled = false; // Habilitamos el botón
             requestAnimationFrame(analizarFrame);
         };
-    
+
+        // Bucle infinito que procesa el video en tiempo real
         function analizarFrame() {
-            if (!procesando) return;
-    
             if (video.readyState === video.HAVE_ENOUGH_DATA) {
-                canvas.width = video.videoWidth;
-                canvas.height = video.videoHeight;
+                // Sincronizar tamaños
+                canvasOculto.width = video.videoWidth;
+                canvasOculto.height = video.videoHeight;
+                canvasVisible.width = video.videoWidth;
+                canvasVisible.height = video.videoHeight;
                 
-                // 1. Dibujamos el video crudo en el canvas
-                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    
+                // 1. Dibujamos el video puro en el canvas oculto
+                ctxOculto.drawImage(video, 0, 0, canvasOculto.width, canvasOculto.height);
+
                 try {
-                    // 2. Intentamos resaltar el papel (dibuja el contorno)
-                    const canvasResaltado = scanner.highlightPaper(canvas);
+                    // 2. Intentamos dibujar el borde naranja sobre la hoja
+                    const canvasResaltado = scanner.highlightPaper(canvasOculto);
                     
-                    // Sobrescribimos el canvas visible con la imagen que tiene el borde dibujado
-                    ctx.clearRect(0, 0, canvas.width, canvas.height);
-                    ctx.drawImage(canvasResaltado, 0, 0);
-    
-                    // 3. Intentamos extraer el papel para validar que realmente es un documento
-                    const papelExtraido = scanner.extractPaper(canvas, 600, 800);
-    
-                    // Si no hay errores hasta aquí, significa que detectó la hoja correctamente
-                    framesEstables++;
-                    statusText.innerText = `¡Hoja detectada! Quédate quieto... (${framesEstables}/15)`;
-                    statusText.style.color = "#0275d8";
-    
-                    if (framesEstables >= 15) {
-                        procesando = false; 
-                        statusText.innerText = "¡Foto capturada con éxito!";
-                        statusText.style.color = "#5cb85c";
-                        
-                        resultadoImg.src = papelExtraido.toDataURL("image/jpeg");
-                        resultadoImg.style.display = "block";
-                        canvas.style.display = "none"; // Ocultamos la cámara en vivo
-                        
-                        video.srcObject.getTracks().forEach(track => track.stop());
-                    }
+                    // Si lo logra, mostramos el video CON las líneas dibujadas al usuario
+                    ctxVisible.clearRect(0, 0, canvasVisible.width, canvasVisible.height);
+                    ctxVisible.drawImage(canvasResaltado, 0, 0);
+                    
+                    // Pequeña ayuda visual en el botón
+                    btnCapturar.style.backgroundColor = "#28a745"; // Verde (Buen encuadre)
                 } catch (e) {
-                    // Si no detecta los 4 bordes de la hoja, entra aquí
-                    framesEstables = 0;
-                    statusText.innerText = "Buscando la hoja... (Asegura un buen contraste)";
-                    statusText.style.color = "#d9534f";
+                    // Si no detecta bordes, simplemente mostramos el video normal sin líneas
+                    ctxVisible.clearRect(0, 0, canvasVisible.width, canvasVisible.height);
+                    ctxVisible.drawImage(canvasOculto, 0, 0);
+                    
+                    btnCapturar.style.backgroundColor = "#f0ad4e"; // Naranja (Buscando encuadre)
                 }
             }
-            
-            if(procesando) {
-                requestAnimationFrame(analizarFrame);
-            }
+            // Repetimos el ciclo para que parezca un video fluido
+            requestAnimationFrame(analizarFrame);
         }
+
+        // EVENTO: ¿Qué pasa cuando hacemos clic en "Tomar Foto"?
+        btnCapturar.addEventListener("click", () => {
+            try {
+                // ATENCIÓN: Extraemos el papel del CANVAS OCULTO (para no capturar las líneas dibujadas)
+                const papelExtraido = scanner.extractPaper(canvasOculto, 600, 800);
+                
+                // Creamos un nuevo elemento de imagen
+                const nuevaImagen = document.createElement("img");
+                nuevaImagen.className = "foto-item";
+                nuevaImagen.src = papelExtraido.toDataURL("image/jpeg"); // Convertimos a foto
+                
+                // Lo agregamos a la galería de abajo
+                galeria.prepend(nuevaImagen); // prepend lo añade de primero en la lista
+
+                // Mensaje de éxito temporal
+                const mensajeOriginal = statusText.innerText;
+                statusText.innerText = "¡Foto agregada a la lista!";
+                statusText.style.color = "#28a745";
+                
+                setTimeout(() => {
+                    statusText.innerText = "Enfoca otro documento si lo deseas...";
+                    statusText.style.color = "#0275d8";
+                }, 2000);
+
+            } catch(e) {
+                // Si el usuario presiona el botón cuando la IA no estaba detectando los 4 bordes
+                alert("No se logran distinguir las 4 esquinas del documento. Ponlo sobre un fondo oscuro e intenta de nuevo.");
+            }
+        });
     </script>
 </body>
 </html>
